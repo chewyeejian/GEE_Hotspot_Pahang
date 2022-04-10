@@ -1,0 +1,221 @@
+var all_states = ee.FeatureCollection("users/chew/mys_adm1");
+
+// Perform Frequency Analysis - daily, monthly, annually
+// Country Boundary (all_states) - level 1 can be downloaded from: https://data.humdata.org/dataset/cod-ab-mys
+
+
+// _____Location Selection in Malaysia  via Feature Collection_____
+var pahang_states = all_states.filter(ee.Filter.or(
+                                    ee.Filter.eq('ADM1_PCODE',"MY08")))
+                                    
+var feature_selected_states = pahang_states //multipolygon
+var selected_states = pahang_states //single polygon to reduce computation 
+print(feature_selected_states,'feature_selected_states')
+Map.addLayer(feature_selected_states,{color:'808080'},"states")
+Map.centerObject(feature_selected_states,8);
+
+// _____Convert selected location to single polygon to save computation_____
+var selected_states = selected_states.map(function(x){
+  var simpleFeat = x.simplify(1000)
+  var area = simpleFeat.area() // in m2
+  var convex = x.convexHull(1000)
+  var areaConvex = convex.area() // in m2
+  return(convex.copyProperties(x).set({area:area,
+    areaConvex: areaConvex
+  }))
+})
+
+// Find the boundary of multiple polygon
+// print(selected_states.sort('areaConvex', false).limit(3))
+Map.addLayer(selected_states,{}, 'conexHull', false)
+
+// Combine multiple polygon into single polygon through union 
+var selected_states = selected_states.union().geometry()
+print(selected_states,'union')
+Map.addLayer(selected_states, {color:'FF0000'}, 'union single polygon selected_states', true, 0.2)
+
+
+// _____Analyse the daily hotspots across 10 years in the selected location_____
+// Testing short period 
+// var fire_start = ee.Date("2020-01-01")
+// var fire_end   = ee.Date("2020-06-30")
+
+// Full set range from 2020 (maximum can set 10 years only for doySeriesByYear, cannot over 5000 images) 
+var fire_start = ee.Date("2010-01-01")
+var fire_end   = ee.Date("2021-12-31")
+
+// Load dataset 
+var dataset = ee.ImageCollection('FIRMS').select('T21').filterDate(fire_start, fire_end).filterBounds(feature_selected_states);
+
+// Clip dataset to selected area by using feature collection - ensure any hotspots outside of the selected area is not included 
+var dataset = dataset.map(function(firms) { return firms.clip(feature_selected_states);});
+
+// The native scale of the FIRMS dataset is ~926 instead of 1000km^2
+var firms_toBands = dataset.toBands()
+print(firms_toBands)
+// print('crs', firms_toBands.select(0).projection());
+var firms_nativeScale = firms_toBands.select(0).projection().nominalScale().toInt();
+print('Image Scale', firms_nativeScale);
+
+// Obtain the yearly graph by filtering region via the single polygon to avoid memory exceeded 
+var series = ui.Chart.image.doySeriesByYear({imageCollection: dataset, 
+                                              bandName:'T21', region:selected_states, 
+                                              regionReducer:ee.Reducer.count(),
+                                              scale:firms_nativeScale})
+                                                    .setOptions({
+                                                      title: 'Number of fires',
+                                                      vAxis: {title: 'Number of Fires'},
+                                                      hAxis: {title: 'Day of Year'},
+                                                      // chartArea: {backgroundColor: 'EBEBEB'},
+                                                      explorer: {axis: 'horizontal'},
+                                                    });
+print(dataset)
+print(series); 
+
+
+// _____Analyse yearly hotspots across 20 years in the selected locations_____
+var fire_start = ee.Date("2001-01-01")
+var fire_end   = ee.Date("2021-12-31")
+var dataset = ee.ImageCollection('FIRMS').select('T21').filterDate(fire_start, fire_end).filterBounds(feature_selected_states)
+
+// Clip dataset to selected area by using feature collection - ensure any hotspots outside of the selected area is not included 
+var dataset = dataset.map(function(firms) { return firms.clip(feature_selected_states);});
+
+
+var years = ee.List.sequence(2001,2021)
+var maps = ee.ImageCollection(years.map(function(year){
+  var startDate = ee.Date.fromYMD(year,1,1)
+  var endDate = ee.Date.fromYMD(year,12,31)
+     // count - to get the number of hotspots at the particular location 
+     // max - to get the maximum temperature (Kelvin) on the particular location
+  var myImg = dataset.filter(ee.Filter.date(startDate,endDate)).count()
+  return myImg.set("system:time_start",startDate, 'system:time_end',endDate)
+}))
+
+var chart_year= ui.Chart.image.seriesByRegion({imageCollection:maps, 
+                              regions:selected_states, 
+                              reducer:ee.Reducer.sum().unweighted(),
+                              scale:firms_nativeScale}).setOptions({
+                                                      title: 'Annual number of fires',
+                                                      vAxis: {title: 'Number of Fires'},
+                                                      hAxis: {title: 'Years'},
+                                                      lineWidth: 1,
+                                                      pointSize: 3,
+                                                      series: {0: {color: 'FF0000'}},
+                                                      // chartArea: {backgroundColor: 'EBEBEB'},
+                                                      explorer: {axis: 'horizontal'},
+                                                      legend: {position: 'none'},
+                              });
+print(chart_year)
+
+// _____Analyse monthly hotspots across 20 years in the selected locations_____
+// Take note on the peak of each year 
+
+var dataset = ee.ImageCollection('FIRMS').select('T21').filterDate(fire_start, fire_end).filterBounds(feature_selected_states)
+
+// Clip dataset to selected area by using feature collection - ensure any hotspots outside of the selected area is not included 
+var dataset = dataset.map(function(firms) { return firms.clip(feature_selected_states);});
+
+var months = ee.List.sequence(0,21*12) //(Jan 2001, 2021)
+print
+var maps = ee.ImageCollection(months.map(function(months){
+  var startDate = ee.Date.fromYMD(2001,1,1).advance(months,'month');
+  var endDate = startDate.advance(1, 'month');
+  var myImg = dataset.filter(ee.Filter.date(startDate,endDate)).count()
+  return myImg.set("system:time_start",startDate, 'system:time_end',endDate)
+}))
+
+print(maps)
+
+// // use native resolution 926.625433055 instead of 1000 
+// // Time series - from 2001 -2021 (one line)
+var chart_year= ui.Chart.image.seriesByRegion({imageCollection:maps, 
+                              regions:selected_states, 
+                              reducer:ee.Reducer.sum().unweighted(),
+                              scale:firms_nativeScale}).setOptions({
+                                                      title: 'Monthly number of fires',
+                                                      vAxis: {title: 'Number of Fires'},
+                                                      hAxis: {title: 'Months'},
+                                                      lineWidth: 1,
+                                                      pointSize: 3,
+                                                      series: {0: {color: 'FF0000'}},
+                                                      // chartArea: {backgroundColor: 'EBEBEB'},
+                                                      explorer: {axis: 'horizontal'},
+                                                      legend: {position: 'none'},
+                              });
+print(chart_year)
+
+// // Time series - from 2000 -2021 (each year one line)
+var chart_year=   ui.Chart.image.doySeriesByYear({
+    imageCollection: maps,
+    bandName:'T21',
+    region: selected_states,
+    regionReducer: ee.Reducer.sum().unweighted(),
+    scale: firms_nativeScale,
+  }).setOptions({
+                                                      title: 'Monthly number of fires',
+                                                      vAxis: {
+                                                        title: 'Number of Fires'
+                                                      },
+                                                      hAxis: {
+                                                        title: 'Day of Year',
+                                                      },
+                                                      lineWidth: 1,
+                                                      pointSize: 3,
+                                                      explorer: {axis: 'horizontal'},
+                                                      interpolateNulls: true,
+                                                      // chartArea: {backgroundColor: 'EBEBEB'},
+                })
+print(chart_year)
+
+// _____Legend on Map______
+// set position of panel
+var legend = ui.Panel({
+  style: {
+    position: 'middle-right',
+    padding: '8px 15px'
+  }
+});
+
+// Creates and styles 1 row of the legend.c
+var makeRow = function(color, name) {
+ 
+      // Create the label that is actually the colored box.
+      var colorBox = ui.Label({
+        style: {
+          backgroundColor: '#' + color,
+          // Use padding to give the box height and width.
+          padding: '8px',
+          margin: '0 0 4px 0'
+        }
+      });
+ 
+      // Create the label filled with the description text.
+      var description = ui.Label({
+        value: name,
+        style: {margin: '0 0 4px 6px'}
+      });
+ 
+      // return the panel
+      return ui.Panel({
+        widgets: [colorBox, description],
+        layout: ui.Panel.Layout.Flow('horizontal')
+      });
+};
+ 
+//  Palette with the colors
+var palette =['808080', 'FF0000'];
+ 
+// name of the legend
+var names = ['Pahang State','Single Polygon of Pahang'];
+ 
+// Add color and and names
+for (var i = 0; i < 2; i++) {
+  legend.add(makeRow(palette[i], names[i]));
+}  
+
+// add legend to map (alternatively you can also print the legend to the console)
+Map.add(legend);
+
+
+
