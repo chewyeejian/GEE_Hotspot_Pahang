@@ -1,0 +1,107 @@
+var all_states = ee.FeatureCollection("users/chew/mys_adm1");
+
+// Perform Frequency Analysis - daily, monthly, annually MODIS hotspot analysis
+// Country Boundary (all_states) - level 1 can be downloaded from: https://data.humdata.org/dataset/cod-ab-mys
+
+// _____Location Selection in Malaysia  via Feature Collection_____
+var pahang_states = all_states.filter(ee.Filter.or(
+                                    ee.Filter.eq('ADM1_PCODE',"MY08")))
+                                    
+var feature_selected_states = pahang_states //multipolygon
+var selected_states = pahang_states //single polygon to reduce computation 
+print(feature_selected_states,'feature_selected_states')
+Map.addLayer(feature_selected_states,{color:'808080'},"states")
+Map.centerObject(feature_selected_states,8);
+
+// _____Convert selected location to single polygon to save computation_____
+var selected_states = selected_states.map(function(x){
+  var simpleFeat = x.simplify(1000)
+  var area = simpleFeat.area() // in m2
+  var convex = x.convexHull(1000)
+  var areaConvex = convex.area() // in m2
+  return(convex.copyProperties(x).set({area:area,
+    areaConvex: areaConvex
+  }))
+})
+
+// Find the boundary of multiple polygon
+// print(selected_states.sort('areaConvex', false).limit(3))
+Map.addLayer(selected_states,{}, 'conexHull', false)
+
+// Combine multiple polygon into single polygon through union 
+var selected_states = selected_states.union().geometry()
+print(selected_states,'union')
+Map.addLayer(selected_states, {color:'FF0000'}, 'union single polygon selected_states', true, 0.2)
+
+
+// _____Display Annual Hotspots in Map in different map layer_____
+var fire_start = ee.Date("2001-01-01")
+var fire_end   = ee.Date("2021-12-31")
+var dataset = ee.ImageCollection('FIRMS').select('T21').filterDate(fire_start, fire_end);
+
+// The native scale of the FIRMS dataset is ~926 instead of 1000km^2
+var firms_toBands = dataset.toBands()
+print(firms_toBands)
+// print('crs', firms_toBands.select(0).projection());
+var firms_nativeScale = firms_toBands.select(0).projection().nominalScale().toInt();
+print('Image Scale', firms_nativeScale);
+
+// Clip dataset to selected area by using feature collection - ensure any hotspots outside of the selected area is not included 
+var dataset = dataset.map(function(firms) { return firms.clip(feature_selected_states);});
+
+var dataset = dataset.count()
+print (dataset,"count")
+
+var minMax = dataset.reduceRegion({
+    reducer: ee.Reducer.minMax(),
+    geometry: selected_states,
+    scale: firms_nativeScale
+})
+print('Min & Max all bands: ', minMax)
+
+var mean = dataset.reduceRegion({
+    reducer: ee.Reducer.mean(),
+    geometry: selected_states,
+    scale: firms_nativeScale
+})
+print('mean: ', mean)
+
+var count = dataset.reduceRegion({
+    reducer: ee.Reducer.count(),
+    geometry: selected_states,
+    scale: firms_nativeScale
+})
+print('count: ', count)
+
+//min = 1
+//max = 361
+//mean = 4.97
+//total hotspot (count) = 16556
+//>100 hotspot area --> pekan, temerloh, jelantut, kuala rompin 
+
+var FIRMS_Visualization =  {min: 1,
+                          max: 100,
+                          palette: ["white", "yellow", "orange", "red"]};
+                          
+Map.addLayer(dataset, FIRMS_Visualization, '20 Years Accumulated Hotspot')
+
+
+//05042022 - filter any hotspots that is greater than 10 (then we can clearly see which place is higher density)
+
+
+
+//_________________LEGEND_____________________________________________
+var legend = ui.Panel({style: {position: 'middle-right',padding: '8px 10px'}});
+var legendTitle = ui.Label({value: 'Number of Hotspots',style: {fontWeight: 'bold',fontSize: '15px',margin: '5 0 9px 0',padding: '10'}});
+legend.add(legendTitle);
+var lon = ee.Image.pixelLonLat().select('latitude');
+var gradient = lon.multiply((FIRMS_Visualization.max-FIRMS_Visualization.min)/100.0).add(FIRMS_Visualization.min);
+var legendImage = gradient.visualize(FIRMS_Visualization);
+var panel = ui.Panel({widgets: [ui.Label(FIRMS_Visualization['max'])],});
+legend.add(panel);
+var thumbnail = ui.Thumbnail({image: legendImage,params: {bbox:'0,0,10,90', dimensions:'20x70'},style: {padding: '1px', position: 'bottom-right'}});
+legend.add(thumbnail);
+var panel = ui.Panel({widgets: [ui.Label(FIRMS_Visualization['min'])],});legend.add(panel);
+Map.add(legend);
+
+
