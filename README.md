@@ -1,8 +1,5 @@
-# 20-years Temporal and Spatial Analysis of Forest Fire in Pahang, Malaysia using FIRMS Hotspots data through Google Earth Engine Platform
-
-## Paper Reference 
-Trend Analysis of Forest Fire in Pahang, Malaysia from 2001-2021 with Google Earth Engine Platform 
-http://www.aasmr.org/liss/Vol.9/No.4%202022/Vol.9.No.4.02.pdf
+# Reference 
+Chew, Y. J., Ooi, S. Y., Pang, Y. H., & Wong, K. S. 2022. Trend Analysis of Forest Fire in Pahang, Malaysia from 2001-2021 with Google Earth Engine Platform. Journal of Logistics, Informatics and Service Science, Volume 9(4), pp. 15–26. https://doi.org/10.33168/LISS.2022.0402
 
 Y. J. Chew, S. Y. Ooi, Y. H. Pang, and K. S. Wong, “Trend Analysis of Forest Fire in Pahang, Malaysia from 2001-2021 with Google Earth Engine Platform,” J. Logist. Informatics Serv. Sci., vol. 9, no. 4, pp. 15–26, 2022, doi: 10.33168/LISS.2022.0402.
 
